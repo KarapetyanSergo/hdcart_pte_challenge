@@ -12,18 +12,30 @@ class OrderController extends Controller
     {
         $latestOrders = DB::table('order_product_test')
         ->fromSub(function ($q) {
-            $q->from('order_product_test')
-            ->whereExists(function ($query) {
-                $query->select(DB::raw(1))
-                ->from('product_test')
-                ->whereColumn('order_product_test.product_id', 'product_test.id')
-                ->whereJsonContains('product_test.payload', ['status' => Product::PUBLISH_STATUS]);
-            })
-            ->where('order_product_test.price', '>', 0)
-            ->where('order_product_test.cost', '>', 0)
-            ->selectRaw("*, ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY line_item_id DESC) AS rn");
-        }, 'latest_orders')
-        ->where('latest_orders.rn', 1)
+            $q->fromSub(function ($q) {
+                $q->from('order_product_test')
+                ->whereExists(function ($query) {
+                    $query->select(DB::raw(1))
+                    ->from('product_test')
+                    ->whereColumn('order_product_test.product_id', 'product_test.id')
+                    ->whereJsonContains('product_test.payload', ['status' => Product::PUBLISH_STATUS]);
+                })
+                ->where('order_product_test.price', '>', 0)
+                ->where('order_product_test.cost', '>', 0)
+                ->selectRaw("*, ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY line_item_id DESC) AS rn");
+            }, 'latest_orders')
+            ->where('latest_orders.rn', 1)
+            ->selectRaw("
+                latest_orders.order_id,
+                latest_orders.product_id,
+                latest_orders.parent_product_id,
+                latest_orders.line_item_id,
+                latest_orders.price,
+                latest_orders.cost,
+                ROW_NUMBER() OVER (PARTITION BY latest_orders.price, latest_orders.parent_product_id ORDER BY line_item_id DESC) AS rn
+            ");
+        }, 'latest_unique_orders')
+        ->where('latest_unique_orders.rn', 1)
         ->get();
 
         return response()->json([
